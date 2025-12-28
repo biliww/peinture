@@ -1,13 +1,15 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
-import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
+import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel, getVideoSettings } from "./utils";
 
-const ZIMAGE_BASE_API_URL = "https://mrfakename-z-image-turbo.hf.space";
+const ZIMAGE_BASE_API_URL = "https://luca115-z-image-turbo.hf.space";
 const QWEN_IMAGE_BASE_API_URL = "https://mcp-tools-qwen-image-fast.hf.space";
 const OVIS_IMAGE_BASE_API_URL = "https://aidc-ai-ovis-image-7b.hf.space";
 const FLUX_SCHNELL_BASE_API_URL = "https://black-forest-labs-flux-1-schnell.hf.space";
 const UPSCALER_BASE_API_URL = "https://tuan2308-upscaler.hf.space";
 const POLLINATIONS_API_URL = "https://text.pollinations.ai/openai";
+const WAN2_VIDEO_API_URL = "https://fradeck619-wan2-2-fp8da-aoti-faster.hf.space";
+export const QWEN_IMAGE_EDIT_BASE_API_URL = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
 
 // --- Token Management System ---
 
@@ -21,6 +23,8 @@ interface TokenStatusStore {
 }
 
 const getUTCDatesString = () => new Date().toISOString().split('T')[0];
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const getTokenStatusStore = (): TokenStatusStore => {
   const defaultStore = { date: getUTCDatesString(), exhausted: {} };
@@ -107,6 +111,11 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
     } catch (error: any) {
       lastError = error;
 
+      // Don't retry if aborted by user
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+
       const isQuotaError =
         error.message === QUOTA_ERROR_KEY ||
         error.message?.includes("429") ||
@@ -124,6 +133,36 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
   }
 
   throw lastError || new Error("error_api_connection");
+};
+
+// --- Gradio File Upload Helper ---
+
+export const uploadToGradio = async (baseUrl: string, image: string | Blob, token: string | null, signal?: AbortSignal): Promise<string> => {
+    const formData = new FormData();
+    formData.append('files', image);
+    
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${baseUrl}/gradio_api/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to upload image to Gradio: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (!result || !result[0]) {
+        throw new Error('Invalid upload response from Gradio');
+    }
+
+    return result[0]; // Returns the filename/path relative to the Gradio space
 };
 
 // --- Service Logic ---
@@ -308,7 +347,7 @@ const generateQwenImage = async (
       return {
         id: generateUUID(),
         url: data[0].url,
-        model: 'qwen-image-fast',
+        model: 'qwen-image', // Standardized ID
         prompt,
         aspectRatio,
         timestamp: Date.now(),
@@ -366,6 +405,82 @@ const generateOvisImage = async (
   });
 };
 
+export const editImageQwen = async (
+  imageBlobs: Blob[],
+  prompt: string,
+  width: number,
+  height: number,
+  steps: number = 4,
+  guidanceScale: number = 1,
+  signal?: AbortSignal
+): Promise<GeneratedImage> => {
+  return runWithTokenRetry(async (token) => {
+    try {
+      const seed = Math.round(Math.random() * 2147483647);
+
+      // 1. Upload all Blobs to Gradio first to get temporary paths
+      const imagePayloadPromises = imageBlobs.map(async (blob) => {
+          const path = await uploadToGradio(QWEN_IMAGE_EDIT_BASE_API_URL, blob, token, signal);
+          return { image: { path, meta: { _type: "gradio.FileData" } } };
+      });
+      
+      const imagePayload = await Promise.all(imagePayloadPromises);
+
+      // 2. Call Inference
+      const queue = await fetch(QWEN_IMAGE_EDIT_BASE_API_URL + '/gradio_api/call/infer', {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({
+          data: [
+            imagePayload,
+            prompt,
+            seed,
+            false, // Randomize seed
+            guidanceScale,
+            steps,
+            height,
+            width,
+            true // Rewrite prompt
+          ]
+        }),
+        signal
+      });
+      const { event_id } = await queue.json();
+
+      await sleep(30);
+
+      const response = await fetch(QWEN_IMAGE_EDIT_BASE_API_URL + '/gradio_api/call/infer/' + event_id, {
+        headers: {
+          "Accept": "text/event-stream",
+          ...getAuthHeaders(token)
+        },
+        signal
+      });
+      const result = await response.text();
+      const data = extractCompleteEventData(result);
+
+      if (!data || !data[0] || !data[0][0]?.image?.url) {
+          throw new Error("error_invalid_response");
+      }
+
+      return {
+        id: generateUUID(),
+        url: data[0][0].image.url,
+        model: 'qwen-image-edit', // Unified ID
+        prompt,
+        aspectRatio: 'custom',
+        timestamp: Date.now(),
+        seed,
+        steps,
+        provider: 'huggingface'
+      };
+    } catch (error) {
+      console.error("Qwen Image Edit Error:", error);
+      throw error;
+    }
+  });
+};
+
 export const generateImage = async (
   model: ModelOption,
   prompt: string,
@@ -379,11 +494,12 @@ export const generateImage = async (
 
   if (model === 'flux-1-schnell') {
     return generateFluxSchnellImage(prompt, aspectRatio, finalSeed, enableHD, steps);
-  } else if (model === 'qwen-image-fast') {
+  } else if (model === 'qwen-image') {
     return generateQwenImage(prompt, aspectRatio, seed, steps);
   } else if (model === 'ovis-image') {
     return generateOvisImage(prompt, aspectRatio, finalSeed, enableHD, steps)
   } else {
+    // Default to z-image-turbo
     return generateZImage(prompt, aspectRatio, finalSeed, enableHD, steps);
   }
 };
@@ -399,6 +515,9 @@ export const upscaler = async (url: string): Promise<{ url: string }> => {
         })
       });
       const { event_id } = await queue.json();
+
+      await sleep(30);
+
       const response = await fetch(UPSCALER_BASE_API_URL + '/gradio_api/call/realesrgan/' + event_id, {
         headers: getAuthHeaders(token)
       });
@@ -415,12 +534,11 @@ export const upscaler = async (url: string): Promise<{ url: string }> => {
   });
 };
 
-export const optimizePrompt = async (originalPrompt: string, lang: string): Promise<string> => {
+export const optimizePrompt = async (originalPrompt: string): Promise<string> => {
   try {
     const model = getOptimizationModel('huggingface');
     // Append the fixed suffix to the user's custom system prompt
-    const activePromptContent = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
-    const systemInstruction = activePromptContent.replace('{language}', lang === 'zh' ? 'Chinese' : 'English');
+    const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
 
     const response = await fetch(POLLINATIONS_API_URL, {
       method: 'POST',
@@ -455,4 +573,78 @@ export const optimizePrompt = async (originalPrompt: string, lang: string): Prom
     console.error("Prompt Optimization Error:", error);
     throw new Error("error_prompt_optimization_failed");
   }
+};
+
+// --- Video Generation Services (HF) ---
+
+const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward, Screen shaking";
+
+export const createVideoTaskHF = async (imageInput: string | Blob, seed: number = 42): Promise<string> => {
+  return runWithTokenRetry(async (token) => {
+    try {
+      const finalSeed = seed ?? Math.floor(Math.random() * 2147483647);
+      const settings = getVideoSettings('huggingface');
+      
+      let filePath = '';
+      
+      if (typeof imageInput === 'string') {
+          filePath = imageInput;
+      } else {
+          filePath = await uploadToGradio(WAN2_VIDEO_API_URL, imageInput, token);
+      }
+
+      // Step 1: POST to queue
+      const queue = await fetch(WAN2_VIDEO_API_URL + '/gradio_api/call/generate_video', {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({
+          data: [
+            { "path": filePath, "meta": { "_type": "gradio.FileData" } },
+            settings.prompt,
+            settings.steps, // Steps from settings
+            VIDEO_NEGATIVE_PROMPT,
+            settings.duration, // Duration from settings
+            settings.guidance, // Guidance 1 from settings
+            settings.guidance, // Guidance 2 from settings
+            finalSeed,
+            false // Randomize seed
+          ]
+        })
+      });
+      const { event_id } = await queue.json();
+
+      await sleep(40);
+
+      // Step 2: Loop to check status. Since HF API relies on event stream which might be long-lived,
+      // we use fetch without abort controller to read the stream until it ends (server closes).
+      try {
+        // Standard fetch will wait for the response body to fully arrive if we use .text()
+        // This effectively waits for the stream to complete or close.
+        const response = await fetch(WAN2_VIDEO_API_URL + '/gradio_api/call/generate_video/' + event_id, {
+          headers: getAuthHeaders(token)
+        });
+
+        const text = await response.text();
+        const data = extractCompleteEventData(text);
+        
+        if (data) {
+            const vid = data[0];
+            if (vid?.video?.url) return vid.video.url;
+            if (vid?.url) return vid.url;
+            return vid;
+        }
+        
+        // If we reach here, the stream closed but no complete event was found.
+        // This could be a network glitch or server timeout. We retry the connection.
+      } catch (e: any) {
+        if (e.message === QUOTA_ERROR_KEY) throw e;
+        // Ignore other errors (timeout, network) and retry after sleep
+        console.warn("HF Video Stream interrupted, retrying...", e);
+      }
+
+    } catch (error) {
+      console.error("Create Video Task HF Error:", error);
+      throw error;
+    }
+  });
 };

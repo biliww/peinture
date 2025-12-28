@@ -1,5 +1,6 @@
 
-# Peinture (AI Image Gen)
+
+# Peinture (Free AI Image Gen)
 
 ![Stars](https://img.shields.io/github/stars/Amery2010/peinture?style=flat-square)
 ![Forks](https://img.shields.io/github/forks/Amery2010/peinture?style=flat-square)
@@ -9,6 +10,10 @@ A sleek, dark-themed AI image generator built with React, TypeScript, and Tailwi
 
 ![App Screenshot](https://cdn.u14.app/upload/WX20251209-170748@2x.png)
 
+![Image Editor](https://cdn.u14.app/upload/WX20251219-170320@2x.jpg)
+
+![Cloud Gallery](https://cdn.u14.app/upload/WX20251220-165529@2x.jpg)
+
 ## ✨ Features
 
 - **Triple AI Providers**: Seamlessly switch between **Hugging Face**, **Gitee AI**, and **Model Scope** providers to access different model ecosystems and quotas.
@@ -16,14 +21,17 @@ A sleek, dark-themed AI image generator built with React, TypeScript, and Tailwi
   - Hugging Face: `Z-Image Turbo`, `Qwen Image Fast`, `Ovis Image`, `FLUX.1 Schnell`
   - Gitee AI: `Z-Image Turbo`, `Qwen Image`, `FLUX.1 Schnell`, `FLUX.1 Krea`, `FLUX.1 Dev`
   - Model Scope: `Z-Image Turbo`, `FLUX.2`, `FLUX.1 Krea`, `FLUX.1`
-- **Auto Translation**: Intelligent detection and translation of non-English prompts to optimize performance for English-centric models like **FLUX**.
+- **Image Editor**: Modify existing images with precision. Use Brush and Rectangle tools to guide AI edits, and upload up to 3 reference images for style or content guidance (Powered by Qwen-Image-Edit).
+- **Live Motion**: Transform static images into dynamic short videos using advanced Image-to-Video models (Wan2.2). Experience cinematic motion and bring your art to life (Supported on Hugging Face & Gitee AI).
+- **Cloud Storage & Gallery**: Configure **S3-compatible storage** (AWS, R2, MinIO) or **WebDAV** to save your creations privately in the cloud. Browse, manage, and download your cloud assets directly from the built-in Gallery.
 - **Prompt Optimization**: Integrated AI prompt enhancer that expands simple ideas into detailed, cinematic descriptions (powered by Pollinations.ai for Hugging Face, DeepSeek for Gitee AI and Model Scope).
+- **Auto Translation**: Intelligent detection and translation of non-English prompts to optimize performance for English-centric models like **FLUX**.
 - **Advanced Controls**: Fine-tune your creations with adjustable **inference steps**, **seed control**, **guidance scale** (for Flux), and **HD Mode** (High Definition).
 - **History Gallery**: Automatically saves generated images locally. View, zoom, pan, and manage your creation history.
 - **4x Resolution**: AI upscaling technology to increase image resolution up to 4x (Only supported on Hugging Face).
 - **Multilingual**: Full support for English and Chinese (中文) interfaces.
 - **Token Management**: Configure personal API tokens for higher rate limits and stability.
-- **Privacy Focused**: History is stored in your browser's LocalStorage; no backend database is required for user data.
+- **Privacy Focused**: History is stored in your browser's LocalStorage; Cloud credentials are also stored locally and never sent to our servers (except to authenticate with your storage provider).
 
 ## 🛠 Tech Stack
 
@@ -37,6 +45,7 @@ A sleek, dark-themed AI image generator built with React, TypeScript, and Tailwi
   - **Gitee AI API**
   - **Model Scope API**
   - **Pollinations.ai**
+  - **S3 / WebDAV Protocols**
 
 ## 🚀 Getting Started
 
@@ -141,6 +150,14 @@ To use the Model Scope provider, you must provide an API token.
 
 *Tokens are stored securely in your browser's `localStorage` and are strictly used to authenticate requests to the respective Inference endpoints.*
 
+### Cloud Storage (Optional)
+To save your creations to the cloud:
+1. Go to **Settings > Storage**.
+2. Select **S3 Storage** or **WebDAV**.
+3. Enter your credentials (e.g., Access Key/Secret Key for S3, URL/User/Pass for WebDAV).
+4. Use the "Test Connection" button to verify.
+5. Once configured, a "Gallery" tab will appear, and you can upload images directly from the Creation or Editor views.
+
 ## ❓ FAQ
 
 **Q: Is this service free to use?**
@@ -154,6 +171,12 @@ A: You can enter multiple tokens separated by commas. The system automatically c
 
 **Q: Which services power this app?**
 A: Image generation for Hugging Face is powered by Hugging Face, and prompt optimization is provided by Pollinations.ai. Image generation and prompt optimization for Gitee AI are provided by Gitee AI. Image generation and prompt optimization for Model Scope are provided by Model Scope.
+
+**Q: What is Live Motion?**
+A: The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported.
+
+**Q: How does the Image Editor work?**
+A: The Image Editor allows you to modify existing images using AI. You can draw on a transparent layer (using Brush or Rectangle tools) to indicate where you want changes, then provide an AI command. The system merges your drawings with the original image and sends them to the Qwen-Image-Edit model. You can also upload up to 3 reference images to guide the AI's artistic style or content.
 
 **Q: Can I host this myself?**
 A: Yes! This is an open-source project licensed under MIT. You can fork the repository from GitHub and deploy it to Vercel, Cloudflare Pages, or any static hosting service.

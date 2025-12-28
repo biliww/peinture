@@ -1,9 +1,15 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
 import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
+import { uploadToGradio } from "./hfService";
+import { API_MODEL_MAP } from "../constants";
 
 const MS_GENERATE_API_URL = "https://api-inference.modelscope.cn/v1/images/generations";
 const MS_CHAT_API_URL = "https://api-inference.modelscope.cn/v1/chat/completions";
+
+// Constants for image upload via HF Space
+const QWEN_EDIT_HF_BASE = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
+const QWEN_EDIT_HF_FILE_PREFIX = "https://linoyts-qwen-image-edit-2509-fast.hf.space/gradio_api/file=";
 
 // --- Token Management System ---
 
@@ -100,6 +106,10 @@ const runWithMsTokenRetry = async <T>(operation: (token: string) => Promise<T>):
     } catch (error: any) {
       lastError = error;
       
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+
       const isQuotaError = 
         error.message?.includes("429") ||
         error.status === 429 ||
@@ -165,11 +175,17 @@ export const generateMSImage = async (
   const finalSteps = steps ?? 9; 
   const sizeString = `${width}x${height}`;
 
+  // Get the actual API model string from the map
+  const apiModel = API_MODEL_MAP.modelscope[model];
+  if (!apiModel) {
+      throw new Error(`Model ${model} not supported on Model Scope`);
+  }
+
   return runWithMsTokenRetry(async (token) => {
     try {
       const requestBody: any = {
           prompt,
-          model,
+          model: apiModel,
           size: sizeString,
           seed: finalSeed,
           steps: finalSteps
@@ -204,7 +220,7 @@ export const generateMSImage = async (
       return {
         id: generateUUID(),
         url: imageUrl,
-        model,
+        model, // Return the standardized ID
         prompt,
         aspectRatio,
         timestamp: Date.now(),
@@ -221,13 +237,82 @@ export const generateMSImage = async (
   });
 };
 
-export const optimizePromptMS = async (originalPrompt: string, lang: string): Promise<string> => {
+export const editImageMS = async (
+  imageBlobs: Blob[],
+  prompt: string,
+  width?: number,
+  height?: number,
+  steps: number = 16,
+  guidanceScale: number = 4,
+  signal?: AbortSignal
+): Promise<GeneratedImage> => {
+  // 1. Upload images to Gradio space to get public URLs. 
+  // Per requirements: no token used for upload, anonymous access.
+  const uploadedFilenames = await Promise.all(imageBlobs.map(blob => 
+    uploadToGradio(QWEN_EDIT_HF_BASE, blob, null, signal)
+  ));
+  const imageUrls = uploadedFilenames.map(name => `${QWEN_EDIT_HF_FILE_PREFIX}${name}`);
+
+  // 2. Perform generation on Model Scope
+  return runWithMsTokenRetry(async (token) => {
+    try {
+      const apiModel = API_MODEL_MAP.modelscope['qwen-image-edit'];
+      const requestBody: any = {
+        prompt,
+        model: apiModel,
+        image_url: imageUrls,
+        seed: Math.floor(Math.random() * 2147483647),
+        steps: steps, // Steps range 4-28, default 16
+        guidance: guidanceScale // Guidance range 1-10, default 4
+      };
+
+      const response = await fetch(MS_GENERATE_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(requestBody),
+        signal
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || `Model Scope Image Edit Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const imageUrl = data.images?.[0]?.url;
+
+      if (!imageUrl) {
+        throw new Error("error_invalid_response");
+      }
+
+      return {
+        id: generateUUID(),
+        url: imageUrl,
+        model: 'qwen-image-edit', // Unified ID
+        prompt,
+        aspectRatio: 'custom',
+        timestamp: Date.now(),
+        steps,
+        guidanceScale,
+        provider: 'modelscope'
+      };
+    } catch (error) {
+      console.error("Model Scope Image Edit Error:", error);
+      throw error;
+    }
+  });
+};
+
+export const optimizePromptMS = async (originalPrompt: string): Promise<string> => {
   return runWithMsTokenRetry(async (token) => {
     try {
       const model = getOptimizationModel('modelscope');
       // Append the fixed suffix to the user's custom system prompt
-      const activePromptContent = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
-      const systemInstruction = activePromptContent.replace('{language}', lang === 'zh' ? 'Chinese' : 'English');
+      const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
+      const apiModel = API_MODEL_MAP.modelscope[model] || model;
       
       const response = await fetch(MS_CHAT_API_URL, {
         method: 'POST',
@@ -236,7 +321,7 @@ export const optimizePromptMS = async (originalPrompt: string, lang: string): Pr
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          model: model,
+          model: apiModel,
           messages: [
             {
               role: 'system',
