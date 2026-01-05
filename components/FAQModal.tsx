@@ -92,11 +92,11 @@ export const FAQModal: React.FC<FAQModalProps> = ({ isOpen, onClose, t }) => {
             question: t.faq_q10,
             answer: t.faq_a10
         },
-        {
-            icon: <CloudUpload className="w-5 h-5 text-orange-400" />,
-            question: t.faq_q5,
-            answer: t.faq_a5
-        }
+        // {
+        //     icon: <CloudUpload className="w-5 h-5 text-orange-400" />,
+        //     question: t.faq_q5,
+        //     answer: t.faq_a5
+        // }
     ];
 
     return (
@@ -155,17 +155,17 @@ export const FAQModal: React.FC<FAQModalProps> = ({ isOpen, onClose, t }) => {
                         ))}
                     </div>
 
-                    <div className="mt-8 p-4 rounded-xl bg-gradient-to-r from-purple-900/10 to-blue-900/10 border border-white/[0.05] text-center group hover:border-white/10 transition-colors">
-                        <a 
-                            href="https://github.com/Amery2010/peinture" 
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-white/40 group-hover:text-white/80 transition-colors flex items-center justify-center gap-2"
-                        >
-                            <Github className="w-4 h-4" />
-                            {t.footer_license}
-                        </a>
-                    </div>
+                    {/*<div className="mt-8 p-4 rounded-xl bg-gradient-to-r from-purple-900/10 to-blue-900/10 border border-white/[0.05] text-center group hover:border-white/10 transition-colors">*/}
+                    {/*    <a */}
+                    {/*        href="https://github.com/Amery2010/peinture" */}
+                    {/*        target="_blank"*/}
+                    {/*        rel="noopener noreferrer"*/}
+                    {/*        className="text-xs text-white/40 group-hover:text-white/80 transition-colors flex items-center justify-center gap-2"*/}
+                    {/*    >*/}
+                    {/*        <Github className="w-4 h-4" />*/}
+                    {/*        {t.footer_license}*/}
+                    {/*    </a>*/}
+                    {/*</div>*/}
                 </div>
 
                 <div className="flex items-center justify-end px-4 py-2 md:px-5 border-t border-white/[0.06] bg-white/[0.02] flex-shrink-0">
